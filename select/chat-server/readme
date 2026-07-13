@@ -1,0 +1,28 @@
+① 启动服务器
+   └── socket() → bind() → listen()
+   └── server_fd = 3 (监听socket)
+
+② 进入主循环
+   ├── FD_ZERO(&readfds)
+   ├── FD_SET(server_fd, &readfds)
+   ├── max_fd = server_fd
+   └── select(4, &readfds, ...) ← 阻塞等待
+
+③ 客户端连接 (事件触发)
+   ├── select() 返回 1
+   ├── FD_ISSET(server_fd, &readfds) == true
+   ├── accept() → client_fd = 4
+   ├── add_client(client_fd)
+   └── pthread_create() 处理该客户端
+
+④ 继续主循环
+   ├── FD_SET(server_fd, &readfds)  // 继续监听新连接
+   ├── FD_SET(client_fd, &readfds)  // 监听现有客户端
+   └── select(5, &readfds, ...) ← 阻塞等待
+
+⑤ 客户端发送消息 (事件触发)
+   ├── select() 返回 1
+   ├── FD_ISSET(client_fd, &readfds) == true
+   ├── 对应线程的 read() 读取数据
+   ├── broadcast_message() 广播
+   └── 回到主循环继续 select

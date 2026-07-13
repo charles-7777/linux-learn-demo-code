@@ -1,0 +1,65 @@
+① 程序启动 (main)
+   └── socket() → bind() (netlink)
+   └── timerfd_create() → timerfd_settime() (5秒定时器)
+   └── signalfd() (信号监控)
+   └── g_netlink_fd = 3, g_timer_fd = 4, g_signal_fd = 5
+
+② 进入主循环 (run_main_loop)
+   ├── FD_ZERO(&readfds)
+   ├── FD_SET(3, &readfds)  // netlink fd
+   ├── FD_SET(4, &readfds)  // timerfd
+   ├── FD_SET(5, &readfds)  // signalfd
+   ├── max_fd = 5
+   └── select(6, &readfds, ...) ← 阻塞等待
+
+③ 网络链路事件 (事件触发)
+   ├── select() 返回 1
+   ├── FD_ISSET(3, &readfds) == true  // netlink就绪
+   ├── handle_netlink_link_message()
+   │   ├── recvfrom() 读取netlink消息
+   │   ├── 解析 RTM_NEWLINK/RTM_DELLINK
+   │   ├── 获取接口名 (ioctl SIOCGIFNAME)
+   │   ├── 打印接口状态、MAC、MTU等
+   │   └── g_stats.link_events++
+   └── 回到主循环继续 select
+
+④ 定时器触发 (5秒后)
+   ├── select() 返回 1
+   ├── FD_ISSET(4, &readfds) == true  // timerfd就绪
+   ├── handle_timer_event()
+   │   ├── read() 读取定时器触发次数
+   │   ├── g_stats.timer_ticks += expirations
+   │   ├── 打印当前时间
+   │   └── 显示统计信息 (运行时间、事件计数等)
+   └── 回到主循环继续 select
+
+⑤ 信号事件 (用户发送信号)
+   ├── select() 返回 1
+   ├── FD_ISSET(5, &readfds) == true  // signalfd就绪
+   ├── handle_signal_event()
+   │   ├── read() 读取信号信息
+   │   ├── g_stats.signal_count++
+   │   ├── 判断信号类型:
+   │   │   ├── SIGINT/SIGTERM → g_running = false (退出)
+   │   │   ├── SIGUSR1 → 显示统计信息
+   │   │   └── SIGUSR2 → 重置统计信息
+   │   └── 打印信号信息
+   └── 继续循环或退出
+
+⑥ 混合事件 (同时多个事件)
+   ├── select() 返回 3
+   ├── FD_ISSET(3, &readfds) → 处理网络事件
+   ├── FD_ISSET(4, &readfds) → 处理定时器
+   ├── FD_ISSET(5, &readfds) → 处理信号
+   └── 依次处理所有就绪fd
+
+⑦ 退出 (收到SIGINT/SIGTERM)
+   ├── select() 返回 1
+   ├── FD_ISSET(5, &readfds) == true
+   ├── handle_signal_event()
+   │   └── g_running = false
+   ├── 主循环退出
+   └── cleanup_resources()
+       ├── close(g_netlink_fd) // 关闭netlink
+       ├── close(g_timer_fd)   // 关闭定时器
+       └── close(g_signal_fd)  // 关闭信号fd
